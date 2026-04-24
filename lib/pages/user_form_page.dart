@@ -36,12 +36,26 @@ class _UserFormPageState extends State<UserFormPage> {
     super.initState();
     _nameController = TextEditingController(text: widget.user?.name ?? '');
     _emailController = TextEditingController(text: widget.user?.email ?? '');
-    _noTelponController =
-        TextEditingController(text: widget.user?.noTelpon ?? '');
     _alamatController = TextEditingController(text: widget.user?.alamat ?? '');
 
-    // Set default country ke Indonesia
+    // Set default country dulu sebelum parse nomor telepon
     _initDefaultCountry();
+
+    // Parse nomor telepon: strip kode negara untuk form input
+    if (widget.user != null && widget.user!.noTelpon.isNotEmpty) {
+      final phone = widget.user!.noTelpon;
+      final code = '+${_selectedCountry?.phoneCode ?? '62'}';
+      if (phone.startsWith(code)) {
+        // Hilangkan kode negara, sisakan nomor lokal saja
+        _noTelponController = TextEditingController(
+          text: phone.substring(code.length),
+        );
+      } else {
+        _noTelponController = TextEditingController(text: phone);
+      }
+    } else {
+      _noTelponController = TextEditingController(text: '');
+    }
   }
 
   void _initDefaultCountry() {
