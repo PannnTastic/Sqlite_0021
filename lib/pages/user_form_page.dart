@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_libphonenumber/flutter_libphonenumber.dart';
 import 'package:pertemuan8/bloc/user_bloc.dart';
@@ -27,14 +28,31 @@ class _UserFormPageState extends State<UserFormPage> {
   String? _phoneAsyncError;
   bool _isValidatingPhone = false;
 
+  // Country code picker
+  CountryWithPhoneCode? _selectedCountry;
+
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.user?.name ?? '');
     _emailController = TextEditingController(text: widget.user?.email ?? '');
     _noTelponController =
-        TextEditingController(text: widget.user?.noTelpon ?? '+62');
+        TextEditingController(text: widget.user?.noTelpon ?? '');
     _alamatController = TextEditingController(text: widget.user?.alamat ?? '');
+
+    // Set default country ke Indonesia
+    _initDefaultCountry();
+  }
+
+  void _initDefaultCountry() {
+    final countries = CountryManager().countries;
+    if (countries.isNotEmpty) {
+      // Cari Indonesia, kalau tidak ada pakai yang pertama
+      _selectedCountry = countries.firstWhere(
+        (c) => c.countryCode == 'ID',
+        orElse: () => countries.first,
+      );
+    }
   }
 
   @override
@@ -44,6 +62,96 @@ class _UserFormPageState extends State<UserFormPage> {
     _noTelponController.dispose();
     _alamatController.dispose();
     super.dispose();
+  }
+
+  // Tampilkan bottom sheet untuk pilih negara
+  void _showCountryPicker() async {
+    final countries = CountryManager().countries
+      ..sort((a, b) =>
+          (a.countryName ?? '').compareTo(b.countryName ?? ''));
+
+    final result = await showModalBottomSheet<CountryWithPhoneCode>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                // Handle bar
+                Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'Pilih Kode Negara',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: countries.length,
+                    itemBuilder: (context, index) {
+                      final country = countries[index];
+                      final isSelected =
+                          country.countryCode == _selectedCountry?.countryCode;
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isSelected
+                              ? Colors.deepPurple
+                              : Colors.grey.shade200,
+                          child: Text(
+                            '+${country.phoneCode}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color:
+                                  isSelected ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        title: Text(country.countryName ?? country.countryCode),
+                        subtitle: Text('+${country.phoneCode}'),
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle,
+                                color: Colors.deepPurple)
+                            : null,
+                        onTap: () => Navigator.pop(context, country),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedCountry = result;
+      });
+    }
   }
 
   // Validasi Nama
@@ -69,24 +177,24 @@ class _UserFormPageState extends State<UserFormPage> {
     return null;
   }
 
-  // Validasi No Telpon - format +62, max 15 karakter + libphonenumber parse
+  // Validasi No Telpon - max 15 karakter + libphonenumber parse
   String? _validateNoTelpon(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'No. Telpon tidak boleh kosong';
     }
-    if (!value.trim().startsWith('+62')) {
-      return 'No. Telpon harus diawali dengan +62';
+
+    // Gabungkan kode negara + nomor untuk cek total panjang
+    final fullNumber = '+${_selectedCountry?.phoneCode ?? '62'}${value.trim()}';
+
+    if (fullNumber.length > 15) {
+      return 'No. Telpon (dengan kode negara) tidak boleh melebihi 15 karakter';
     }
-    if (value.trim().length > 15) {
-      return 'No. Telpon tidak boleh melebihi 15 karakter';
+    if (value.trim().length < 4) {
+      return 'No. Telpon terlalu pendek';
     }
-    if (value.trim().length < 10) {
-      return 'No. Telpon minimal 10 karakter (contoh: +628123456)';
-    }
-    // Cek hanya angka setelah +
-    final phoneDigits = value.trim().substring(1);
-    if (!RegExp(r'^\d+$').hasMatch(phoneDigits)) {
-      return 'No. Telpon hanya boleh berisi angka setelah tanda +';
+    // Cek hanya angka
+    if (!RegExp(r'^\d+$').hasMatch(value.trim())) {
+      return 'No. Telpon hanya boleh berisi angka';
     }
     // Return error dari async validation jika ada
     if (_phoneAsyncError != null) {
@@ -102,14 +210,14 @@ class _UserFormPageState extends State<UserFormPage> {
       _phoneAsyncError = null;
     });
     try {
+      final regionCode = _selectedCountry?.countryCode ?? 'ID';
       // parse() adalah top-level function dari flutter_libphonenumber
-      final result = await parse(phone, region: 'ID');
+      final result = await parse(phone, region: regionCode);
 
       // Jika berhasil di-parse, nomor valid
       if (result['e164'] == null || result['e164'].toString().isEmpty) {
         setState(() {
-          _phoneAsyncError =
-              'Nomor telepon tidak valid menurut format Indonesia';
+          _phoneAsyncError = 'Nomor telepon tidak valid untuk negara yang dipilih';
           _isValidatingPhone = false;
         });
         return false;
@@ -121,7 +229,7 @@ class _UserFormPageState extends State<UserFormPage> {
       return true;
     } catch (e) {
       setState(() {
-        _phoneAsyncError = 'Nomor telepon tidak valid menurut format Indonesia';
+        _phoneAsyncError = 'Nomor telepon tidak valid untuk negara yang dipilih';
         _isValidatingPhone = false;
       });
       return false;
@@ -139,23 +247,27 @@ class _UserFormPageState extends State<UserFormPage> {
     return null;
   }
 
+  // Gabungkan kode negara + nomor lokal
+  String _getFullPhoneNumber() {
+    final code = _selectedCountry?.phoneCode ?? '62';
+    final localNumber = _noTelponController.text.trim();
+    return '+$code$localNumber';
+  }
+
   void _submitForm() async {
-    // Reset phone async error dulu
     setState(() {
       _phoneAsyncError = null;
     });
 
-    // Validasi form synchronous dulu
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
     // Validasi async nomor telepon pakai flutter_libphonenumber
-    final phoneNumber = _noTelponController.text.trim();
-    final isPhoneValid = await _validatePhoneWithLibphonenumber(phoneNumber);
+    final fullPhone = _getFullPhoneNumber();
+    final isPhoneValid = await _validatePhoneWithLibphonenumber(fullPhone);
 
     if (!isPhoneValid) {
-      // Re-validate form supaya error muncul di field
       _formKey.currentState!.validate();
       return;
     }
@@ -166,7 +278,7 @@ class _UserFormPageState extends State<UserFormPage> {
           : DateTime.now().millisecondsSinceEpoch.toString(),
       name: _nameController.text.trim(),
       email: _emailController.text.trim(),
-      noTelpon: _noTelponController.text.trim(),
+      noTelpon: _getFullPhoneNumber(), // Simpan dengan kode negara lengkap
       alamat: _alamatController.text.trim(),
     );
 
@@ -260,53 +372,70 @@ class _UserFormPageState extends State<UserFormPage> {
               ),
               const SizedBox(height: 16),
 
-              // Field No Telpon (with libphonenumber validation + auto-format)
-              TextFormField(
-                controller: _noTelponController,
-                decoration: InputDecoration(
-                  labelText: 'No. Telpon',
-                  hintText: '+628xxxxxxxxxx',
-                  prefixIcon: const Icon(Icons.phone),
-                  suffixIcon: _isValidatingPhone
-                      ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2),
+              // Field No Telpon dengan country code picker
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Tombol pilih kode negara
+                  GestureDetector(
+                    onTap: _showCountryPicker,
+                    child: Container(
+                      height: 56,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '+${_selectedCountry?.phoneCode ?? '62'}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        )
-                      : null,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  helperText:
-                      'Format: +62xxx, maks 15 karakter (validasi via libphonenumber)',
-                  counterText: '',
-                ),
-                validator: _validateNoTelpon,
-                keyboardType: TextInputType.phone,
-                maxLength: 15,
-                textInputAction: TextInputAction.next,
-                inputFormatters: [
-                  LibPhonenumberTextFormatter(
-                    phoneNumberType: PhoneNumberType.mobile,
-                    phoneNumberFormat: PhoneNumberFormat.international,
-                    country: CountryWithPhoneCode(
-                      phoneCode: '62',
-                      countryCode: 'ID',
-                      exampleNumberMobileNational: '0812-345-6789',
-                      exampleNumberFixedLineNational: '021-234-5678',
-                      phoneMaskMobileNational: '0000-000-0000',
-                      phoneMaskFixedLineNational: '000-000-0000',
-                      exampleNumberMobileInternational: '+62 812-345-6789',
-                      exampleNumberFixedLineInternational: '+62 21-234-5678',
-                      phoneMaskMobileInternational: '+00 000-000-0000',
-                      phoneMaskFixedLineInternational: '+00 00-000-0000',
-                      countryName: 'Indonesia',
+                          const SizedBox(width: 4),
+                          const Icon(Icons.arrow_drop_down, size: 20),
+                        ],
+                      ),
                     ),
-                    inputContainsCountryCode: true,
+                  ),
+                  const SizedBox(width: 10),
+                  // Input nomor telepon
+                  Expanded(
+                    child: TextFormField(
+                      controller: _noTelponController,
+                      decoration: InputDecoration(
+                        labelText: 'No. Telpon',
+                        hintText: '8123456789',
+                        prefixIcon: const Icon(Icons.phone),
+                        suffixIcon: _isValidatingPhone
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        helperText: 'Maks 15 karakter total (validasi libphonenumber)',
+                        counterText: '',
+                      ),
+                      validator: _validateNoTelpon,
+                      keyboardType: TextInputType.phone,
+                      maxLength: 13,
+                      textInputAction: TextInputAction.next,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly
+                      ],
+                    ),
                   ),
                 ],
               ),
