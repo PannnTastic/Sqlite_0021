@@ -10,19 +10,19 @@ import 'package:pertemuan8/pages/user_list_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await init(); // Inisialisasi flutter_libphonenumber
-  runApp(const MyApp());
+  final databaseHelper = DatabaseHelper();
+  final userRepository = UserRepositoryImpl(databaseHelper);
+  runApp( MyApp(repository: userRepository));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final UserRepositoryImpl repository;
+  const MyApp({super.key, required this.repository});
 
   @override
   Widget build(BuildContext context) {
-    final databaseHelper = DatabaseHelper();
-    final userRepository = UserRepositoryImpl(databaseHelper);
-
     return BlocProvider(
-      create: (context) => UserBloc(userRepository)..add(LoadUsers()),
+      create: (context) => UserBloc(repository)..add(LoadUsers()),
       child: MaterialApp(
         title: 'SQLite CRUD - Activity 6',
         debugShowCheckedModeBanner: false,

@@ -7,13 +7,17 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pertemuan8/data/repositories/user_repository_impl.dart';
+import 'package:pertemuan8/helper/database_helper.dart';
 
 import 'package:pertemuan8/main.dart';
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    final databaseHelper = DatabaseHelper();
+    final userRepository = UserRepositoryImpl(databaseHelper);
+    await tester.pumpWidget( MyApp(repository: userRepository));
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
